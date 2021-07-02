@@ -244,6 +244,28 @@ class WCondNet(nn.Module):
             out = out.view(out.shape[0], self.inp_channels, self.inp_channels)  # 36 --> 6 x 6
             return out  # shape (B, C, C)
 
+    # def forward(self, cond_input):
+    #     conv_out = self.conv_net(cond_input)
+    #     conv_out = conv_out.view(conv_out.shape[0], -1)
+    #     out = self.linear_net(conv_out)  # shape (batch_size, out_features)
+
+    #     b_size = out.shape[0]
+
+    #     if self.do_lu:
+    #         # out = out.squeeze(0)  # batch size 1
+    #         channels_sqrt = self.inp_channels ** 2
+    #         w_l_flattened = out[:, :channels_sqrt]
+    #         w_u_flattened = out[:, channels_sqrt:channels_sqrt * 2]
+    #         w_s = out[:, channels_sqrt * 2:]  # 1d tensor
+
+    #         matrix_shape = (b_size, self.inp_channels, self.inp_channels)
+    #         w_l = torch.reshape(w_l_flattened, matrix_shape)  # 2d tensor
+    #         w_u = torch.reshape(w_u_flattened, matrix_shape)
+    #         return w_l, w_u, w_s
+    #     else:
+    #         out = out.view(b_size, self.inp_channels, self.inp_channels)  # 36 --> 6 x 6
+    #         return out  # shape (B, C, C)
+
 
 class CouplingCondNet(nn.Module):
     def __init__(self, cond_shape, inp_shape):

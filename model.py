@@ -72,6 +72,7 @@ class Cond_Actnorm(nn.Module):
             print('ActNormConditional CondNet params:', total_params)
 
     def forward(self, inp, condition):
+        condition = torch.nn.functional.interpolate(condition, inp.size()[2:], mode='bilinear')
         cond_out = self.cond_net(condition, inp)  # output shape (B, 2, C)
         s = cond_out[:, 0, :].unsqueeze(2).unsqueeze(3)  # s, t shape (B, C, 1, 1)
         t = cond_out[:, 1, :].unsqueeze(2).unsqueeze(3)
@@ -83,6 +84,7 @@ class Cond_Actnorm(nn.Module):
         return s * (inp + t), log_det
 
     def reverse(self, out, condition):
+        condition = torch.nn.functional.interpolate(condition, out.size()[2:], mode='bilinear')
         cond_out = self.cond_net(condition)  # output shape (B, 2, C)
         s = cond_out[:, 0, :].unsqueeze(2).unsqueeze(3)  # s, t shape (B, C, 1, 1)
         t = cond_out[:, 1, :].unsqueeze(2).unsqueeze(3)
@@ -203,8 +205,12 @@ class Cond_InvConv2dLU(nn.Module):
             self.w_s = nn.Parameter(logabs(w_s))
 
     def forward(self, inp, condition=None):
+        condition = torch.nn.functional.interpolate(condition, inp.size()[2:], mode='bilinear')
         _, _, height, width = inp.shape
         weight, s_vector = self.calc_weight(condition)
+        # print(weight.shape) # 1,12,1,1,12 / original 12, 12, 1, 1
+        # print(s_vector.shape) # original 12
+        # exit() 
         out = F.conv2d(inp, weight)
         logdet = height * width * torch.sum(s_vector)
         return out, logdet
@@ -214,19 +220,42 @@ class Cond_InvConv2dLU(nn.Module):
             l_matrix, u_matrix, s_vector = self.cond_net(condition)
         else:
             l_matrix, u_matrix, s_vector = self.w_l, self.w_u, self.w_s
-
+    
         weight = (
                 self.w_p
                 @ (l_matrix * self.l_mask + self.l_eye)  # explicitly make it lower-triangular with 1's on diagonal
                 @ ((u_matrix * self.u_mask) + torch.diag(self.s_sign * torch.exp(s_vector)))
         )
+
         return weight.unsqueeze(2).unsqueeze(3), s_vector
 
+    # def calc_weight(self, condition=None):
+    #     if self.mode == 'conditional':
+    #         l_matrix, u_matrix, s_vector = self.cond_net(condition)
+    #     else:
+    #         l_matrix, u_matrix, s_vector = self.w_l, self.w_u, self.w_s
+
+    #     b_size = l_matrix.shape[0]
+    #     weights = []
+    #     for i in range(b_size):
+    #         weight = (
+    #                 self.w_p
+    #                 @ (l_matrix[i] * self.l_mask + self.l_eye)  # explicitly make it lower-triangular with 1's on diagonal
+    #                 @ ((u_matrix[i] * self.u_mask) + torch.diag(self.s_sign * torch.exp(s_vector[i])))
+    #         )
+    #         weights.append(weight.unsqueeze(0))
+    #     weight = torch.cat(weights, dim=0)
+
+        
+    #     return weight.unsqueeze(3).unsqueeze(4), s_vector
+
     def reverse_single(self, output, condition=None):
+        condition = torch.nn.functional.interpolate(condition, output.size()[2:], mode='bilinear')
         weight, _ = self.calc_weight(condition)
         return F.conv2d(output, weight.squeeze().inverse().unsqueeze(2).unsqueeze(3))
 
     def reverse(self, output, condition=None):
+        condition = torch.nn.functional.interpolate(condition, output.size()[2:], mode='bilinear')
         batch_size = output.shape[0]
         if batch_size == 1:
             return self.reverse_single(output, condition)
@@ -343,6 +372,8 @@ class Cond_AffineCoupling(nn.Module):
         return s, t
 
     def forward(self, input, cond):
+        cond = torch.nn.functional.interpolate(cond, input.size()[2:], mode='bilinear')
+        
         in_a, in_b = input.chunk(2, 1)
 
         if self.affine:
@@ -362,6 +393,7 @@ class Cond_AffineCoupling(nn.Module):
         return torch.cat([in_a, out_b], 1), logdet
 
     def reverse(self, output, cond):
+        cond = torch.nn.functional.interpolate(cond, output.size()[2:], mode='bilinear')
         out_a, out_b = output.chunk(2, 1)
 
         if self.affine:
@@ -619,6 +651,7 @@ class Cond_Block(nn.Module):
             act_outs.append(act_out)
 
         if self.split:
+
             out, z_new = out.chunk(2, 1)
             mean, log_sd = self.prior(out).chunk(2, 1)
             log_p = gaussian_log_p(z_new, mean, log_sd)
@@ -726,7 +759,6 @@ class Glow(nn.Module):
 
             z_outs.append(z_new)
             log_det = log_det + det
-            log_p_sum = log_p_sum + log_p
 
             if log_p is not None:
                 log_p_sum = log_p_sum + log_p
@@ -767,10 +799,6 @@ class Cond_Glow(nn.Module):
             self.blocks.append(Cond_Block(n_channel, n_flow, inp_shape, cond_shape, affine=affine, conv_lu=conv_lu))
             n_channel *= 2
         self.blocks.append(Cond_Block(n_channel, n_flow, input_shapes[n_block - 1], cond_shapes[n_block - 1], split=False, affine=affine))
-
-        # cond_shapes = calc_cond_shapes(in_channel,
-        #                                [img_size, img_size],
-        #                                n_block)  # shape (C, H, W)
 
     def forward(self, inp, left_glow_out):
         conditions = self.prep_conds(left_glow_out, direction='forward')
