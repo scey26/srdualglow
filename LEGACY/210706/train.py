@@ -18,7 +18,7 @@ import os
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser(description="Glow trainer")
-parser.add_argument("--batch", default=16, type=int, help="batch size")
+parser.add_argument("--batch", default=1, type=int, help="batch size")
 parser.add_argument("--iter", default=200000, type=int, help="maximum iterations")
 parser.add_argument("--n_flow", default=32, type=int, help="number of flows in each block")
 parser.add_argument("--n_block", default=4, type=int, help="number of blocks")
@@ -94,6 +94,12 @@ def train(args, model_left, model_right, optimizer):
     dataset_hr = iter(sample_data(args.path, args.batch, args.img_size))
     n_bins = 2.0 ** args.n_bits
 
+    z_sample_lr = []
+    z_shapes_lr = calc_z_shapes(3, args.img_size // args.scale, args.n_flow, args.n_block)
+    for z in z_shapes_lr:
+        z_new = torch.randn(args.n_sample, *z) * args.temp
+        z_sample_lr.append(z_new.to(device))
+
     z_sample_hr = []
     z_shapes_hr = calc_z_shapes(3, args.img_size, args.n_flow, args.n_block)
     for z in z_shapes_hr:
@@ -132,6 +138,9 @@ def train(args, model_left, model_right, optimizer):
                     # perform right glow forward
                     right_glow_out = model_right.module(image_hr + torch.rand_like(image_hr) / n_bins, left_glow_out)
 
+                    # extract left outputs
+                    log_p_lr, logdet_lr = left_glow_out['log_p_sum'], right_glow_out['log_det']
+
                     continue
 
             else:
@@ -143,10 +152,15 @@ def train(args, model_left, model_right, optimizer):
                 # perform right glow forward
                 right_glow_out = model_right(image_hr + torch.rand_like(image_hr) / n_bins, left_glow_out)
 
+                # extract left outputs
+                log_p_lr, logdet_lr = left_glow_out['log_p_sum'], left_glow_out['log_det']
+
                 # extract right outputs
                 log_p_hr, logdet_hr = right_glow_out['log_p_sum'], right_glow_out['log_det']
 
+            logdet_lr = logdet_lr.mean()
 
+            loss_lr, log_p_lr, log_det_lr = calc_loss(log_p_lr, logdet_lr, args.img_size // args.scale, n_bins)
             warmup_lr = args.lr
 
             logdet_hr = logdet_hr.mean()
@@ -154,12 +168,12 @@ def train(args, model_left, model_right, optimizer):
             loss_hr, log_p_hr, log_det_hr = calc_loss(log_p_hr, logdet_hr, args.img_size, n_bins)
 
             optimizer.zero_grad()
-            loss =  loss_hr
+            loss = loss_lr + loss_hr
             loss.backward()
             optimizer.step()
 
             pbar.set_description(
-                f"Loss: {loss_hr.item():.5f}; logP: {log_p_hr.item():.5f}; logdet: {log_det_hr.item():.5f}; lr: {warmup_lr:.7f}"
+                f"Loss: {loss_lr.item():.5f}, {loss_hr.item():.5f}; logP: {log_p_lr.item():.5f}, {log_p_hr.item():.5f}; logdet: {log_det_lr.item():.5f}, {log_det_hr.item():.5f}; lr: {warmup_lr:.7f}"
             )
 
             if i % 100 == 0:
@@ -177,7 +191,7 @@ def train(args, model_left, model_right, optimizer):
                     )
 
                     utils.save_image(
-                        model_single_left.reverse(left_glow_out['z_outs'], reconstruct=True).cpu().data,
+                        model_single_left.reverse(left_glow_out['z_outs']).cpu().data,
                         f"sample/{args.save_folder}/gen_lr_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         nrow=10,
@@ -202,6 +216,9 @@ def train(args, model_left, model_right, optimizer):
 
             if i % 10000 == 0:
                 torch.save(
+                    model_left.state_dict(), f"checkpoint/{args.save_folder}/model_lr_{str(i + 1).zfill(6)}.pt"
+                )
+                torch.save(
                     optimizer.state_dict(), f"checkpoint/{args.save_folder}/optim_{str(i + 1).zfill(6)}.pt"
                 )
                 torch.save(
@@ -225,8 +242,6 @@ if __name__ == "__main__":
     model_left = nn.DataParallel(model_single_left)
     # model = model_single
     model_left = model_left.to(device)
-    model_left.load_state_dict(torch.load('./checkpoint/left_only_size64_batch16/model_lr_070001.pt'))
-    model_left.eval()
     # optimizer_left = optim.Adam(model_left.parameters(), lr=args.lr)
 
     model_single_right = Cond_Glow(
@@ -236,6 +251,6 @@ if __name__ == "__main__":
     # model = model_single
     model_right = model_right.to(device)
     # optimizer_right = optim.Adam(model_right.parameters(), lr=args.lr)
-    optimizer = optim.Adam([{"params": model_right.parameters(), "lr": args.lr}])
+    optimizer = optim.Adam([{"params": model_left.parameters(), "lr":args.lr}, {"params": model_right.parameters(), "lr": args.lr}])
 
     train(args, model_left, model_right, optimizer)

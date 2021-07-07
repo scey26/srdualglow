@@ -361,15 +361,7 @@ class Cond_AffineCoupling(nn.Module):
 
         self.cond_net = CouplingCondNet(cond_shape, inp_shape)  # without considering batch size dimension
 
-
-    def compute_feature_cond(self, cond):
-        cond_tensor = self.cond_net(cond)
-        inp_a_conditional = cond_tensor
-        log_s, t = self.net(inp_a_conditional).chunk(chunks=2, dim=1)
-        s = torch.sigmoid(log_s + 2)
-        return s, t
-
-    def compute_self_cond(self, tensor, cond):
+    def compute_coupling_params(self, tensor, cond):
         if cond is not None:  # conditional
             cond_tensor = self.cond_net(cond)
             inp_a_conditional = torch.cat(tensors=[tensor, cond_tensor], dim=1)  # concat channel-wise
@@ -385,16 +377,13 @@ class Cond_AffineCoupling(nn.Module):
         in_a, in_b = input.chunk(2, 1)
 
         if self.affine:
-            # affine injector
-            s, t = self.compute_feature_cond(cond)
+            # log_s, t = self.net(in_a).chunk(2, 1)
+            s, t = self.compute_coupling_params(in_a, cond)
+            # s = torch.exp(log_s)
+            # s = F.sigmoid(log_s + 2) # original
+            # out_a = s * in_a + t
             out_b = (in_b + t) * s
             logdet = torch.sum(torch.log(s).view(input.shape[0], -1), 1)
-            # affine coupling layer
-            out_b1, out_b2 = out_b.chunk(2,1)
-            s, t = self.compute_self_cond(out_b1, cond)
-            out_b = (out_b2 + t) * s
-
-            logdet = logdet + torch.sum(torch.log(s).view(input.shape[0], -1), 1)
 
         else:
             net_out = self.net(in_a)
@@ -456,43 +445,14 @@ class Flow(nn.Module):
         return input
 
 
-class transition(nn.Module):
-    def __init__(self, in_channel, conv_lu=True):
-        super().__init__()
-
-        self.actnorm = ActNorm(in_channel)
-
-        if conv_lu:
-            self.invconv = InvConv2dLU(in_channel)
-
-        else:
-            self.invconv = InvConv2d(in_channel)
-
-    def forward(self, input):
-        act_out, act_logdet = self.actnorm(input)
-        w_out, w_det1 = self.invconv(act_out)
-
-        logdet = act_logdet + w_det1
-
-        out = w_out
-
-        return act_out, w_out, out, logdet
-
-    def reverse(self, output):
-        input = self.invconv.reverse(output)
-        input = self.actnorm.reverse(input)
-
-        return input
-
-
 class Cond_Flow(nn.Module):
     def __init__(self, in_channel, cond_shape, inp_shape, affine=True, conv_lu=True):
         super().__init__()
 
-        self.actnorm = ActNorm(in_channel)
+        self.actnorm = Cond_Actnorm(cond_shape, inp_shape)
 
         if conv_lu:
-            self.invconv = InvConv2dLU(in_channel)
+            self.invconv = Cond_InvConv2dLU(in_channel, cond_shape = cond_shape, inp_shape = inp_shape)
 
         else:
             self.invconv = InvConv2d(in_channel)
@@ -500,10 +460,8 @@ class Cond_Flow(nn.Module):
         self.coupling = Cond_AffineCoupling(in_channel, cond_shape, inp_shape, affine=affine)
 
     def forward(self, input, conditions):
-        # act_out, act_logdet = self.actnorm(input, conditions['act_cond'])
-        # w_out, w_det1 = self.invconv(act_out, conditions['w_cond'])
-        act_out, act_logdet = self.actnorm(input)
-        w_out, w_det1 = self.invconv(act_out)
+        act_out, act_logdet = self.actnorm(input, conditions['act_cond'])
+        w_out, w_det1 = self.invconv(act_out, conditions['w_cond'])
         out, det2 = self.coupling(w_out, conditions['coupling_cond'])
 
         logdet = act_logdet + w_det1
@@ -513,11 +471,9 @@ class Cond_Flow(nn.Module):
         return act_out, w_out, out, logdet
 
     def reverse(self, output, conditions):
-        # input = self.coupling.reverse(output, conditions['coupling_cond'])
-        # input = self.invconv.reverse(input, conditions['w_cond'])
-        input = self.coupling.reverse(output,conditions['coupling_cond'])
-        input = self.invconv.reverse(input)
-        input = self.actnorm.reverse(input)
+        input = self.coupling.reverse(output, conditions['coupling_cond'])
+        input = self.invconv.reverse(input, conditions['w_cond'])
+        input = self.actnorm.reverse(input, conditions['act_cond'])
 
         return input
 
@@ -650,8 +606,6 @@ class Cond_Block(nn.Module):
         squeeze_dim = in_channel * 4
 
         self.flows = nn.ModuleList()
-        # self.transition = transition(squeeze_dim, conv_lu=conv_lu) # here is the transition layer!
-        self.flows.append(transition(squeeze_dim, conv_lu=conv_lu)) # here is the transition layer!
         for i in range(n_flow):
             self.flows.append(Cond_Flow(squeeze_dim, inp_shape, cond_shape, affine=affine, conv_lu=conv_lu))
 
@@ -676,14 +630,10 @@ class Cond_Block(nn.Module):
         act_outs = []
 
         total_log_det = 0
-        # out = self.transition(out)
         for i, flow in enumerate(self.flows):
-            if i>0:
-                act_cond, w_cond, coupling_cond = extract_conds(conditions, i-1) # It should be modified if left and right glow are equivalent
-                condition = {'act_cond' : act_cond, 'w_cond' : w_cond, 'coupling_cond' : coupling_cond}
-                flow_output = flow(out, condition)
-            else:
-                flow_output = flow(out)
+            act_cond, w_cond, coupling_cond = extract_conds(conditions, i)
+            condition = {'act_cond' : act_cond, 'w_cond' : w_cond, 'coupling_cond' : coupling_cond}
+            flow_output = flow(out, condition)
 
             flow_output = to_dict('flow', flow_output)
             out, log_det = flow_output['out'], flow_output['log_det']
@@ -747,13 +697,11 @@ class Cond_Block(nn.Module):
                 mean, log_sd = self.prior(zero).chunk(2, 1)
                 z = gaussian_sample(eps, mean, log_sd)
                 input = z
+
         for i, flow in enumerate(self.flows[::-1]):
-            if i == len(self.flows) - 1:
-                act_cond, w_cond, coupling_cond = extract_conds(conditions, i)
-                conds = make_cond_dict(act_cond, w_cond, coupling_cond)
-                input = flow.reverse(input, conds)
-            else:
-                input = flow.reverse(input)
+            act_cond, w_cond, coupling_cond = extract_conds(conditions, i)
+            conds = make_cond_dict(act_cond, w_cond, coupling_cond)
+            input = flow.reverse(input, conds)
 
         b_size, n_channel, height, width = input.shape
 
