@@ -345,19 +345,33 @@ class Cond_AffineCoupling(nn.Module):
 
         self.affine = affine
 
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channel // 2, filter_size, 3, padding=1),
+        self.net_feature = nn.Sequential(
+            nn.Conv2d(in_channel, filter_size, 3, padding=1), #nn.Conv2d(in_channel // 2, filter_size, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(filter_size, filter_size, 1),
+            nn.ReLU(inplace=True),
+            ZeroConv2d(filter_size, in_channel * 2), #ZeroConv2d(filter_size, in_channel if self.affine else in_channel // 2),
+        )
+
+        # in_channel=12, cond_shape= (12,64,64)
+
+        self.net_self = nn.Sequential(
+            nn.Conv2d(in_channel //2 + cond_shape[0], filter_size, 3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(filter_size, filter_size, 1),
             nn.ReLU(inplace=True),
             ZeroConv2d(filter_size, in_channel if self.affine else in_channel // 2),
         )
 
-        self.net[0].weight.data.normal_(0, 0.05)
-        self.net[0].bias.data.zero_()
+        self.net_feature[0].weight.data.normal_(0, 0.05)
+        self.net_feature[0].bias.data.zero_()
+        self.net_feature[2].weight.data.normal_(0, 0.05)
+        self.net_feature[2].bias.data.zero_()
 
-        self.net[2].weight.data.normal_(0, 0.05)
-        self.net[2].bias.data.zero_()
+        self.net_self[0].weight.data.normal_(0, 0.05)
+        self.net_self[0].bias.data.zero_()
+        self.net_self[2].weight.data.normal_(0, 0.05)
+        self.net_self[2].bias.data.zero_()
 
         self.cond_net = CouplingCondNet(cond_shape, inp_shape)  # without considering batch size dimension
 
@@ -365,61 +379,64 @@ class Cond_AffineCoupling(nn.Module):
     def compute_feature_cond(self, cond):
         cond_tensor = self.cond_net(cond)
         inp_a_conditional = cond_tensor
-        log_s, t = self.net(inp_a_conditional).chunk(chunks=2, dim=1)
+        log_s, t = self.net_feature(cond).chunk(chunks=2, dim=1)
         s = torch.sigmoid(log_s + 2)
         return s, t
 
     def compute_self_cond(self, tensor, cond):
         if cond is not None:  # conditional
             cond_tensor = self.cond_net(cond)
-            inp_a_conditional = torch.cat(tensors=[tensor, cond_tensor], dim=1)  # concat channel-wise
-            log_s, t = self.net(inp_a_conditional).chunk(chunks=2, dim=1)
+            inp_a_conditional = torch.cat(tensors=[tensor, cond], dim=1)  # concat channel-wise
+            log_s, t = self.net_self(inp_a_conditional).chunk(chunks=2, dim=1)
         else:
-            log_s, t = self.net(tensor).chunk(chunks=2, dim=1)
-        s = torch.sigmoid(log_s + 2)
+            log_s, t = self.net_self(tensor).chunk(chunks=2, dim=1)
+        s = torch.sigmoid(log_s + 2) 
         return s, t
 
     def forward(self, input, cond):
         cond = torch.nn.functional.interpolate(cond, input.size()[2:], mode='bilinear')
         
-        in_a, in_b = input.chunk(2, 1)
+        # 
 
         if self.affine:
             # affine injector
             s, t = self.compute_feature_cond(cond)
-            out_b = (in_b + t) * s
+            out_b = (input + t) * s
             logdet = torch.sum(torch.log(s).view(input.shape[0], -1), 1)
             # affine coupling layer
             out_b1, out_b2 = out_b.chunk(2,1)
             s, t = self.compute_self_cond(out_b1, cond)
-            out_b = (out_b2 + t) * s
+            out_b2 = (out_b2 + t) * s
 
             logdet = logdet + torch.sum(torch.log(s).view(input.shape[0], -1), 1)
 
         else:
+            in_a, in_b = input.chunk(2, 1)
             net_out = self.net(in_a)
             out_b = in_b + net_out
             logdet = None
 
-        return torch.cat([in_a, out_b], 1), logdet
+        return torch.cat([out_b1, out_b2], 1), logdet
 
     def reverse(self, output, cond):
         cond = torch.nn.functional.interpolate(cond, output.size()[2:], mode='bilinear')
-        out_a, out_b = output.chunk(2, 1)
+        # out_a, out_b = output.chunk(2, 1)
 
         if self.affine:
-            # log_s, t = self.net(out_a).chunk(2, 1)
-            s, t = self.compute_coupling_params(out_a, cond)
-            # s = torch.exp(log_s)
-            # s = F.sigmoid(log_s + 2) # original
-            # in_a = (out_a - t) / s
-            in_b = out_b / s - t
+            out_b1, out_b2 = output.chunk(2,1)
+            s, t = self.compute_self_cond(out_b1, cond)
+            out_b2 = out_b2 / s - t 
+            out_b = torch.cat([out_b1, out_b2], dim=1)
+
+            s, t = self.compute_feature_cond(cond)
+            out_b = out_b / s - t
 
         else:
+            out_a, out_b = output.chunk(2, 1)
             net_out = self.net(out_a)
             in_b = out_b - net_out
 
-        return torch.cat([out_a, in_b], 1)
+        return out_b
 
 
 class Flow(nn.Module):
@@ -488,12 +505,10 @@ class transition(nn.Module):
 class Cond_Flow(nn.Module):
     def __init__(self, in_channel, cond_shape, inp_shape, affine=True, conv_lu=True):
         super().__init__()
-
-        self.actnorm = ActNorm(in_channel)
+        self.actnorm = ActNorm(in_channel) # in_channel : 12
 
         if conv_lu:
             self.invconv = InvConv2dLU(in_channel)
-
         else:
             self.invconv = InvConv2d(in_channel)
 
@@ -748,7 +763,7 @@ class Cond_Block(nn.Module):
                 z = gaussian_sample(eps, mean, log_sd)
                 input = z
         for i, flow in enumerate(self.flows[::-1]):
-            if i == len(self.flows) - 1:
+            if i != len(self.flows) - 1:
                 act_cond, w_cond, coupling_cond = extract_conds(conditions, i)
                 conds = make_cond_dict(act_cond, w_cond, coupling_cond)
                 input = flow.reverse(input, conds)
