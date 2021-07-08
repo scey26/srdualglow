@@ -551,6 +551,7 @@ class Block(nn.Module):
         squeeze_dim = in_channel * 4
 
         self.flows = nn.ModuleList()
+        self.flows.append(transition(squeeze_dim, conv_lu=conv_lu))
         for i in range(n_flow):
             self.flows.append(Flow(squeeze_dim, affine=affine, conv_lu=conv_lu))
 
