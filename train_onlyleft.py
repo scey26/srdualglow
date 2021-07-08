@@ -141,10 +141,10 @@ def train(args, model_left, optimizer):
             warmup_lr = args.lr
 
 
-            # optimizer.zero_grad()
-            # loss = loss_lr
-            # loss.backward()
-            # optimizer.step()
+            optimizer.zero_grad()
+            loss = loss_lr
+            loss.backward()
+            optimizer.step()
 
             pbar.set_description(
                 f"Loss: {loss_lr.item():.5f} ; logP: {log_p_lr.item():.5f} ; logdet: {log_det_lr.item():.5f} ; lr: {warmup_lr:.7f}"
@@ -201,7 +201,6 @@ if __name__ == "__main__":
     model_left = nn.DataParallel(model_single_left)
 
     model_left = model_left.to(device)
-    model_left.load_state_dict(torch.load('./checkpoint/left_only_size64_batch16/model_lr_070001.pt'))
 
     optimizer = optim.Adam([{"params": model_left.parameters(), "lr":args.lr}])
 
