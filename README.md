@@ -1,19 +1,20 @@
 # Update log
 
-07/10/2021(by Changyeop): 
+<07/10/2021(by Changyeop)>
+
+DONE
+
 1) Removing conditional network (CN)
 2) Temperature should be set 0 to preserve contents
 
-TODO) 
-  a) Debugging the right glow for convergence
-  
-  b) Adding skip-connection to use LR images
-  
-  c) Not necessary to be bound by injector
-  
-  d) Due to the GPU memory, let's set n_flow=16 n_block=2 following the SRFlow
+TODO
 
-Before works : 
+1) Debugging the right glow for convergence
+2) Adding skip-connection to use LR images
+3) Not necessary to be bound by injector 
+4) Due to the GPU memory, let's set n_flow=16 n_block=2 following the SRFlow
+
+<Before works>
 1) Reproducing the FullGlow network
 2) Training left glow first, and then training right glow
 3) Adding transition layers referring to SRFlow (proved by training the left glow model -> work!)
