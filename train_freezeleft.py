@@ -31,6 +31,7 @@ parser.add_argument("--scale", default=2, type=int, help="SR scale")
 parser.add_argument("--temp", default=0.7, type=float, help="temperature of sampling")
 parser.add_argument("--n_sample", default=4, type=int, help="number of samples") # it should be same with batch size
 parser.add_argument("path", metavar="PATH", type=str, help="Path to image directory")
+parser.add_argument("--left_glow_params", type=str)
 parser.add_argument("--save_folder", type=str)
 
 def sample_data(path, batch_size, image_size):
@@ -97,7 +98,7 @@ def train(args, model_left, model_right, optimizer):
     z_sample_hr = []
     z_shapes_hr = calc_z_shapes(3, args.img_size, args.n_flow, args.n_block)
     for z in z_shapes_hr:
-        z_new = torch.randn(args.n_sample, *z) * args.temp
+        z_new = torch.randn(args.batch, *z) * args.temp
         z_sample_hr.append(z_new.to(device))
 
     with tqdm(range(args.iter)) as pbar:
@@ -223,19 +224,16 @@ if __name__ == "__main__":
         3, args.n_flow, args.n_block, affine=False, conv_lu=not args.no_lu
     )
     model_left = nn.DataParallel(model_single_left)
-    # model = model_single
     model_left = model_left.to(device)
-    model_left.load_state_dict(torch.load('./checkpoint/left_only_size64_batch16/model_lr_070001.pt'))
+    model_left.load_state_dict(torch.load(args.left_glow_params))
     model_left.eval()
-    # optimizer_left = optim.Adam(model_left.parameters(), lr=args.lr)
 
     model_single_right = Cond_Glow(
         3, args.n_flow, args.n_block, input_shapes, cond_shapes, affine=args.affine, conv_lu=not args.no_lu
     )
     model_right = nn.DataParallel(model_single_right)
-    # model = model_single
     model_right = model_right.to(device)
-    # optimizer_right = optim.Adam(model_right.parameters(), lr=args.lr)
+    
     optimizer = optim.Adam([{"params": model_right.parameters(), "lr": args.lr}])
 
     train(args, model_left, model_right, optimizer)

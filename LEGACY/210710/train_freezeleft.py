@@ -18,35 +18,34 @@ import os
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser(description="Glow trainer")
-parser.add_argument("--batch", default=16, type=int, help="batch size")
+parser.add_argument("--batch", default=4, type=int, help="batch size")
 parser.add_argument("--iter", default=200000, type=int, help="maximum iterations")
 parser.add_argument("--n_flow", default=32, type=int, help="number of flows in each block")
 parser.add_argument("--n_block", default=4, type=int, help="number of blocks")
 parser.add_argument("--no_lu", action="store_true", help="use plain convolution instead of LU decomposed version")
-parser.add_argument("--affine", action="store_true", help="use affine coupling instead of additive")
+parser.add_argument("--affine", action="store_false", help="use affine coupling instead of additive")
 parser.add_argument("--n_bits", default=5, type=int, help="number of bits")
 parser.add_argument("--lr", default=1e-4, type=float, help="learning rate")
-parser.add_argument("--img_size", default=256, type=int, help="image size")
+parser.add_argument("--img_size", default=128, type=int, help="image size")
 parser.add_argument("--scale", default=2, type=int, help="SR scale")
 parser.add_argument("--temp", default=0.7, type=float, help="temperature of sampling")
-parser.add_argument("--n_sample", default=1, type=int, help="number of samples")
+parser.add_argument("--n_sample", default=4, type=int, help="number of samples") # it should be same with batch size
 parser.add_argument("path", metavar="PATH", type=str, help="Path to image directory")
+parser.add_argument("--left_glow_params", type=str)
 parser.add_argument("--save_folder", type=str)
-
-
-
 
 def sample_data(path, batch_size, image_size):
     transform = transforms.Compose(
         [
             transforms.Resize(image_size),
             transforms.CenterCrop(image_size),
-            # transforms.RandomHorizontalFlip(), # For pairing LR-HR, future work
+            # transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
         ]
     )
 
     dataset = datasets.ImageFolder(path, transform=transform)
+    # dataset = datasets.CelebA(root='./dataset', split='train', transform=transform, download=True)
     loader = DataLoader(dataset, shuffle=False, batch_size=batch_size, num_workers=4)
     loader = iter(loader)
 
@@ -91,15 +90,16 @@ def calc_loss(log_p, logdet, image_size, n_bins):
     )
 
 
-def train(args, model_left, optimizer):
+def train(args, model_left, model_right, optimizer):
     dataset_lr = iter(sample_data(args.path, args.batch, args.img_size // args.scale))
+    dataset_hr = iter(sample_data(args.path, args.batch, args.img_size))
     n_bins = 2.0 ** args.n_bits
 
-    z_sample_lr = []
-    z_shapes_lr = calc_z_shapes(3, args.img_size // args.scale, args.n_flow, args.n_block)
-    for z in z_shapes_lr:
+    z_sample_hr = []
+    z_shapes_hr = calc_z_shapes(3, args.img_size, args.n_flow, args.n_block)
+    for z in z_shapes_hr:
         z_new = torch.randn(args.batch, *z) * args.temp
-        z_sample_lr.append(z_new.to(device))
+        z_sample_hr.append(z_new.to(device))
 
     with tqdm(range(args.iter)) as pbar:
         for i in pbar:
@@ -113,6 +113,16 @@ def train(args, model_left, optimizer):
 
             image_lr = image_lr / n_bins - 0.5
 
+            image_hr, _ = next(dataset_hr)
+            image_hr = image_hr.to(device)
+
+            image_hr = image_hr * 255
+
+            if args.n_bits < 8:
+                image_hr = torch.floor(image_hr / 2 ** (8 - args.n_bits))
+
+            image_hr = image_hr / n_bins - 0.5
+
             if i == 0:
                 with torch.no_grad():
                     #  perform left glow forward
@@ -120,8 +130,8 @@ def train(args, model_left, optimizer):
                         image_lr + torch.rand_like(image_lr) / n_bins
                     )
 
-                    # extract left outputs
-                    log_p_lr, logdet_lr = left_glow_out['log_p_sum'], left_glow_out['log_det']
+                    # perform right glow forward
+                    right_glow_out = model_right.module(image_hr + torch.rand_like(image_hr) / n_bins, left_glow_out)
 
                     continue
 
@@ -131,28 +141,38 @@ def train(args, model_left, optimizer):
                     image_lr + torch.rand_like(image_lr) / n_bins
                 )
 
-                # extract left outputs
-                log_p_lr, logdet_lr = left_glow_out['log_p_sum'], left_glow_out['log_det']
+                # perform right glow forward
+                right_glow_out = model_right(image_hr + torch.rand_like(image_hr) / n_bins, left_glow_out)
 
-            logdet_lr = logdet_lr.mean()
+                # extract right outputs
+                log_p_hr, logdet_hr = right_glow_out['log_p_sum'], right_glow_out['log_det']
 
-            loss_lr, log_p_lr, log_det_lr = calc_loss(log_p_lr, logdet_lr, args.img_size // args.scale, n_bins)
+
             warmup_lr = args.lr
 
+            logdet_hr = logdet_hr.mean()
+
+            loss_hr, log_p_hr, log_det_hr = calc_loss(log_p_hr, logdet_hr, args.img_size, n_bins)
 
             optimizer.zero_grad()
-            loss = loss_lr
+            loss =  loss_hr
             loss.backward()
             optimizer.step()
 
             pbar.set_description(
-                f"Loss: {loss_lr.item():.5f} ; logP: {log_p_lr.item():.5f} ; logdet: {log_det_lr.item():.5f} ; lr: {warmup_lr:.7f}"
+                f"Loss: {loss_hr.item():.5f}; logP: {log_p_hr.item():.5f}; logdet: {log_det_hr.item():.5f}; lr: {warmup_lr:.7f}"
             )
 
             if i % 100 == 0:
                 with torch.no_grad():
                     utils.save_image(image_lr,
                         f"sample/{args.save_folder}/gt_lr_{str(i + 1).zfill(6)}.png",
+                        normalize=True,
+                        range=(-0.5, 0.5),
+                    )
+
+                    utils.save_image(image_hr,
+                        f"sample/{args.save_folder}/gt_hr_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         range=(-0.5, 0.5),
                     )
@@ -166,8 +186,16 @@ def train(args, model_left, optimizer):
                     )
 
                     utils.save_image(
-                        model_single_left.reverse(z_sample_lr).cpu().data,
-                        f"sample/{args.save_folder}/gen_lr_randz_{str(i + 1).zfill(6)}.png",
+                        model_single_right.reverse(right_glow_out['z_outs'], reconstruct=True, left_glow_out=left_glow_out).cpu().data,
+                        f"sample/{args.save_folder}/gen_hr_{str(i + 1).zfill(6)}.png",
+                        normalize=True,
+                        nrow=10,
+                        range=(-0.5, 0.5),
+                    )
+
+                    utils.save_image(
+                        model_single_right.reverse(z_sample_hr, reconstruct=False, left_glow_out=left_glow_out).cpu().data,
+                        f"sample/{args.save_folder}/gen_hr_randz_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         nrow=10,
                         range=(-0.5, 0.5),
@@ -175,32 +203,40 @@ def train(args, model_left, optimizer):
 
             if i % 10000 == 0:
                 torch.save(
-                    model_left.state_dict(), f"checkpoint/{args.save_folder}/model_lr_{str(i + 1).zfill(6)}.pt"
-                )
-                torch.save(
                     optimizer.state_dict(), f"checkpoint/{args.save_folder}/optim_{str(i + 1).zfill(6)}.pt"
                 )
- 
+                torch.save(
+                    model_right.state_dict(), f"checkpoint/{args.save_folder}/model_hr_{str(i + 1).zfill(6)}.pt"
+                )
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
     print(args)
-
     os.makedirs(f"checkpoint/{args.save_folder}",exist_ok = True)
     os.makedirs(f"sample/{args.save_folder}",exist_ok = True)
 
-    input_shapes = calc_inp_shapes(3, [args.img_size // args.scale, args.img_size // args.scale], args.n_block)
+    input_shapes = calc_inp_shapes(3, [args.img_size , args.img_size], args.n_block)
 
     cond_shapes = calc_cond_shapes(3, [args.img_size, args.img_size], args.n_block)
 
     model_single_left = Glow(
-        3, args.n_flow, args.n_block, affine=args.affine, conv_lu=not args.no_lu
+        3, args.n_flow, args.n_block, affine=False, conv_lu=not args.no_lu
     )
     model_left = nn.DataParallel(model_single_left)
-
+    # model = model_single
     model_left = model_left.to(device)
+    model_left.load_state_dict(torch.load(args.left_glow_params))
+    model_left.eval()
+    # optimizer_left = optim.Adam(model_left.parameters(), lr=args.lr)
 
-    optimizer = optim.Adam([{"params": model_left.parameters(), "lr":args.lr}])
+    model_single_right = Cond_Glow(
+        3, args.n_flow, args.n_block, input_shapes, cond_shapes, affine=args.affine, conv_lu=not args.no_lu
+    )
+    model_right = nn.DataParallel(model_single_right)
+    # model = model_single
+    model_right = model_right.to(device)
+    # optimizer_right = optim.Adam(model_right.parameters(), lr=args.lr)
+    optimizer = optim.Adam([{"params": model_right.parameters(), "lr": args.lr}])
 
-    train(args, model_left, optimizer)
+    train(args, model_left, model_right, optimizer)
