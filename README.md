@@ -5,6 +5,7 @@
 2) Temperature should be set 0 to preserve contents
 
 TODO) 
+
   a) Debugging the right glow for convergence
   b) Adding skip-connection to use LR images
   c) Not necessary to be bound by injector
