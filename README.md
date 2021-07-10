@@ -31,6 +31,8 @@ python train_freezeleft.py 'DATASET PATH'  --save_folder 'SAVING FOLDER NAME' --
 ```
 ex) python train_freezeleft.py './dataset' --save_folder 210710_test2 --left_glow_params '' --temp 0 --batch 4 --n_flow 16 --n_block 2
 
+# Recording areas
+
 ### Get started
 
 First of all, we will train the left Glow model without conditioning. You can train with `python train_onlyleft.py PATH_FOR_CELEBA --save_folder SAVE_PATH`.
