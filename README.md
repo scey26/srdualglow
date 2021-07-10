@@ -1,7 +1,31 @@
-## Running the train.py
+### Update log
 
-python train.py 'DATASET PATH'
+07/10/2021(by Changyeop): 
+1) Removing conditional network (CN)
+2) Temperature should be set 0 to preserve contents
 
+TODO) 
+  a) Debugging the right glow for convergence
+  b) Adding skip-connection to use LR images
+  c) Not necessary to be bound by injector
+  d) Due to the GPU memory, let's set n_flow=16 n_block=2 following the SRFlow
+
+Before works : 
+1) Reproducing the FullGlow network
+2) Training left glow first, and then training right glow
+3) Adding transition layers referring to SRFlow (proved by training the left glow model -> work!)
+4) Adding the affine injector reffering to SRFlow (not converge)
+
+
+## Train command
+
+# Training the left glow
+python train_onlyleft.py 'DATASET PATH'  --save_folder 'SAVING FOLDER NAME' --batch 'BATCH SIZE' --n_flow 'Num FLOWS' --n_block 'Num BLOCKS'
+ex) python train_freezeleft.py './dataset' --save_folder 210710_test2 --batch 4 --n_flow 16 --n_block 2
+
+# Training the right glow
+python train_freezeleft.py 'DATASET PATH'  --save_folder 'SAVING FOLDER NAME' --left_glow_params 'LEFT GLOW MODEL PATH' --temp 'TEMP' --batch 'BATCH' --n_flow 'Num FLOWS' --n_block 'Num BLOCKS'
+ex) python train_freezeleft.py './dataset' --save_folder 210710_test2 --left_glow_params '' --temp 0 --batch 4 --n_flow 16 --n_block 2
 
 ### Get started
 
