@@ -41,12 +41,13 @@ def sample_data(path, batch_size, image_size):
         [
             transforms.Resize(image_size),
             transforms.CenterCrop(image_size),
-            # transforms.RandomHorizontalFlip(), # For pairing LR-HR, future work
+            # transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
         ]
     )
 
     dataset = datasets.ImageFolder(path, transform=transform)
+    # dataset = datasets.CelebA(root='./dataset', split='train', transform=transform, download=True)
     loader = DataLoader(dataset, shuffle=False, batch_size=batch_size, num_workers=4)
     loader = iter(loader)
 
@@ -170,7 +171,7 @@ def train(args, model_left, optimizer):
                         f"sample/{args.save_folder}/gen_lr_randz_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         nrow=10,
-                        range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),flow
                     )
 
             if i % 10000 == 0:
