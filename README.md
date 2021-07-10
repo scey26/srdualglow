@@ -1,4 +1,4 @@
-## Update log
+# Update log
 
 07/10/2021(by Changyeop): 
 1) Removing conditional network (CN)
