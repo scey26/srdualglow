@@ -23,7 +23,7 @@ TODO
 3) Not necessary to be bound by injector 
 4) Due to the GPU memory, let's set n_flow=16 n_block=2 following the SRFlow
 
-PREVIOUS WORKS
+### PREVIOUS WORKS
   
 1) Reproducing the FullGlow network
 2) Training left glow first, and then training right glow
