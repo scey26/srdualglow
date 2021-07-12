@@ -1,5 +1,14 @@
 # Update log
 
+<07/12/2021(by Changyeop)>
+
+TODO
+
+1) Testing scale x4 after finishing scale x2
+2) Splitting train/val for fair comparisons
+3) Making independent test code
+4) Implementing experiements with positive temperature
+
 <07/10/2021(by Changyeop)>
 
 DONE
