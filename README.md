@@ -38,6 +38,14 @@ ex) python train_freezeleft.py './dataset' --save_folder 210710_test2 --left_glo
 
 # Recording areas
 
+### [0712, Seungjae] Conditioning after adding transition in left Glow
+
+There is a transition layer at each block in the architecture of SRFlow. We also added transition layer at each block and trained left Glow (LR). It did well. However, there was a minor bug when we come to the Glow with conditioning. The outputs from transition layer **does** needed in training the left Glow itself, but it **should not** be fed to the right Glow as conditioning variable. I modified the `prep_conds` function in the `model.py` to remove the output from transition layer in the conditioning variables (It is dictionary composed with lists). After that, `gen_hr` which is a direct reconstruction from HR images trained very fast (visually reasonable just in 201 iterations) as follows.
+
+<p align="center">
+<img width="70%" src="src/debug_transition_left_right_glow/gen_hr_000201.png">
+</p>
+
 ### Get started
 
 First of all, we will train the left Glow model without conditioning. You can train with `python train_onlyleft.py PATH_FOR_CELEBA --save_folder SAVE_PATH`.

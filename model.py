@@ -360,17 +360,21 @@ class Cond_AffineCoupling_debugging(nn.Module):
         cond_tensor = self.cond_net(cond)
         inp_a_conditional = cond_tensor
         log_s, t = self.net_feature(cond).chunk(chunks=2, dim=1)
+        # print('eel', log_s.max(), log_s.min())
         s = torch.sigmoid(log_s + 2)
+        # print('ee', s.max(), s.min())
         return s, t
 
     def compute_self_cond(self, tensor, cond):
-        if cond is not None:  # conditional
+        if cond is not None:  # conditional  # go to here.
             cond_tensor = self.cond_net(cond)
             inp_a_conditional = torch.cat(tensors=[tensor, cond], dim=1)  # concat channel-wise
             log_s, t = self.net_self(inp_a_conditional).chunk(chunks=2, dim=1)
         else:
             log_s, t = self.net_self(tensor).chunk(chunks=2, dim=1)
-        s = torch.sigmoid(log_s + 2) 
+        # print('dl', log_s.max(), log_s.min())  # log_s diverges
+        s = torch.sigmoid(log_s + 2)
+        # print('d', s.max(), s.min())
         return s, t
 
     def forward(self, input, cond):
@@ -387,6 +391,7 @@ class Cond_AffineCoupling_debugging(nn.Module):
             out_b1, out_b2 = out_b.chunk(2,1)
             s, t = self.compute_self_cond(out_b1, cond)
             out_b2 = (out_b2 + t) * s
+            # print('fff', s.max(), s.min())  # s.min goes to 0.
 
             logdet = logdet + torch.sum(torch.log(s).view(input.shape[0], -1), 1)
 
@@ -556,6 +561,7 @@ class Cond_Flow(nn.Module):
             self.invconv = InvConv2d(in_channel)
 
         self.coupling = Cond_AffineCoupling_original(in_channel, cond_shape, inp_shape, affine=affine)
+        # self.coupling = Cond_AffineCoupling_debugging(in_channel, cond_shape, inp_shape, affine=affine)
 
     def forward(self, input, conditions):
         # act_out, act_logdet = self.actnorm(input, conditions['act_cond'])
@@ -974,6 +980,10 @@ class Cond_Glow(nn.Module):
         act_cond = left_glow_out['all_act_outs']
         w_cond = left_glow_out['all_w_outs']  # left_glow_out in the forward direction
         coupling_cond = left_glow_out['all_flows_outs']
+        coupling_cond_new = []
+        for c in coupling_cond:
+            coupling_cond_new.append(c[1:])
+        coupling_cond = coupling_cond_new
 
         # make conds a dictionary
         conditions = make_cond_dict(act_cond, w_cond, coupling_cond)
