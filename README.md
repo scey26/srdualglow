@@ -54,8 +54,14 @@ ex) python train_freezeleft.py './dataset' --save_folder 210710_test2 --left_glo
 
 # Recording areas
 
+### [0713, Seungjae] For x4 SR.
+Retrained Left Glow for x4 scale (32 --> 128).
+`scp seungjae@143.248.230.92:/media/seungjae/4f8e1659-05ca-478b-993b-9eed84c6feaa/srdualglow/checkpoint/0713_x4_onlyleft_n_f_32_n_b_4/model_lr_010001.pt ./`
+password : `seungjae`
+
 ### [0713, Seungjae] Split 'train', 'valid', 'test'.
 `train_freezeleft.py` now train with **train** set of CelebA dataset. Modified `sample_data` function which gets `split` variable.
+**path argument has changed!!!** If you previously pass `path` argument as `./celeba`, now you have to pass as `.` (remove celeba at the end).
 
 ### [0712, Seungjae] Conditioning after adding transition in left Glow (save_name=debug in 92 server)
 
