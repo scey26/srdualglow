@@ -34,31 +34,69 @@ parser.add_argument("path", metavar="PATH", type=str, help="Path to image direct
 parser.add_argument("--left_glow_params", type=str)
 parser.add_argument("--save_folder", type=str)
 
-def sample_data(path, batch_size, image_size):
-    transform = transforms.Compose(
-        [
-            transforms.Resize(image_size),
-            transforms.CenterCrop(image_size),
-            # transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-        ]
-    )
 
-    dataset = datasets.ImageFolder(path, transform=transform)
-    # dataset = datasets.CelebA(root='./dataset', split='train', transform=transform, download=True)
-    loader = DataLoader(dataset, shuffle=False, batch_size=batch_size, num_workers=4)
-    loader = iter(loader)
 
-    while True:
-        try:
-            yield next(loader)
+def sample_data(path, batch_size, image_size, split):
+    if 'transform' not in locals() and 'dataset_train' not in locals():
+        transform = transforms.Compose(
+            [
+                transforms.Resize(image_size),
+                transforms.CenterCrop(image_size),
+                # transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+            ]
+        )
+        dataset_train = datasets.CelebA(root='.', split='train', transform=transform)
+        dataset_valid = datasets.CelebA(root='.', split='valid', transform=transform)
+        dataset_test = datasets.CelebA(root='.', split='test', transform=transform)
+        print(f"Train set : {len(dataset_train)}, Valid set : {len(dataset_valid)}, 'Test set : {len(dataset_test)}")
 
-        except StopIteration:
-            loader = DataLoader(
-                dataset, shuffle=False, batch_size=batch_size, num_workers=4
-            )
-            loader = iter(loader)
-            yield next(loader)
+    # dataset = datasets.ImageFolder(path, transform=transform)
+
+    if split=='train':
+        loader_train = DataLoader(dataset_train, shuffle=False, batch_size=batch_size, num_workers=4)
+        loader_train = iter(loader_train)
+
+        while True:
+            try:
+                yield next(loader_train)
+
+            except StopIteration:
+                loader_train = DataLoader(
+                    dataset_train, shuffle=False, batch_size=batch_size, num_workers=4
+                )
+                loader_train = iter(loader_train)
+                yield next(loader_train)
+
+    elif split=='valid':
+        loader_valid = DataLoader(dataset_valid, shuffle=False, batch_size=batch_size, num_workers=4)
+        loader_valid = iter(loader_valid)
+
+        while True:
+            try:
+                yield next(loader_valid)
+
+            except StopIteration:
+                loader_valid = DataLoader(
+                    dataset_valid, shuffle=False, batch_size=batch_size, num_workers=4
+                )
+                loader_valid = iter(loader_valid)
+                yield next(loader_valid)
+
+    elif split=='test':
+        loader_test = DataLoader(dataset_test, shuffle=False, batch_size=batch_size, num_workers=4)
+        loader_test = iter(loader_test)
+
+        while True:
+            try:
+                yield next(loader_test)
+
+            except StopIteration:
+                loader_test = DataLoader(
+                    dataset_test, shuffle=False, batch_size=batch_size, num_workers=4
+                )
+                loader_test = iter(loader_test)
+                yield next(loader_test)
 
 
 def calc_z_shapes(n_channel, input_size, n_flow, n_block):
@@ -91,8 +129,8 @@ def calc_loss(log_p, logdet, image_size, n_bins):
 
 
 def train(args, model_left, model_right, optimizer):
-    dataset_lr = iter(sample_data(args.path, args.batch, args.img_size // args.scale))
-    dataset_hr = iter(sample_data(args.path, args.batch, args.img_size))
+    dataset_lr = iter(sample_data(args.path, args.batch, args.img_size // args.scale, split='train'))
+    dataset_hr = iter(sample_data(args.path, args.batch, args.img_size, split='train'))
     n_bins = 2.0 ** args.n_bits
 
     z_sample_hr = []
@@ -235,5 +273,5 @@ if __name__ == "__main__":
     model_right = model_right.to(device)
     
     optimizer = optim.Adam([{"params": model_right.parameters(), "lr": args.lr}])
-
+    torch.autograd.set_detect_anomaly(True)
     train(args, model_left, model_right, optimizer)
