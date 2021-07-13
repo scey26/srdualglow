@@ -1,5 +1,12 @@
 # Update log
 
+### <07/13/2021(by Changyeop)>
+
+DISCUSSION
+
+1) "HR size 192 -> NaN error, HR size 128 -> working" => Why?
+2) Seungjae retrain left glow (size 32), and then train right glow (size 128, scale x4)
+
 ### <07/12/2021(by Changyeop)>
 
 TODO
