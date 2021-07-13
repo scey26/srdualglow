@@ -46,9 +46,9 @@ def sample_data(path, batch_size, image_size, split):
                 transforms.ToTensor(),
             ]
         )
-        dataset_train = datasets.CelebA(root='.', split='train', transform=transform)
-        dataset_valid = datasets.CelebA(root='.', split='valid', transform=transform)
-        dataset_test = datasets.CelebA(root='.', split='test', transform=transform)
+        dataset_train = datasets.CelebA(root=path, split='train', transform=transform)
+        dataset_valid = datasets.CelebA(root=path, split='valid', transform=transform)
+        dataset_test = datasets.CelebA(root=path, split='test', transform=transform)
         print(f"Train set : {len(dataset_train)}, Valid set : {len(dataset_valid)}, 'Test set : {len(dataset_test)}")
 
     # dataset = datasets.ImageFolder(path, transform=transform)
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     )
     model_left = nn.DataParallel(model_single_left)
     model_left = model_left.to(device)
-    model_left.load_state_dict(torch.load(args.left_glow_params))
+    # model_left.load_state_dict(torch.load(args.left_glow_params))
     model_left.eval()
 
     model_single_right = Cond_Glow(
