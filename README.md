@@ -44,7 +44,7 @@ TODO
 ```bash
 python train_onlyleft.py 'DATASET PATH'  --save_folder 'SAVING FOLDER NAME' --batch 'BATCH SIZE' --n_flow 'Num FLOWS' --n_block 'Num BLOCKS'
 ```
-ex) python train_freezeleft.py './dataset' --save_folder 210710_test2 --batch 4 --n_flow 16 --n_block 2
+ex) python train_onlyleft.py './dataset' --save_folder 210710_test2 --batch 4 --n_flow 16 --n_block 2
 
 ## Training right glow
 ```bash
