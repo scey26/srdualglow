@@ -201,7 +201,7 @@ def train(args, model_left, model_right, optimizer):
                 f"Loss: {loss_hr.item():.5f}; logP: {log_p_hr.item():.5f}; logdet: {log_det_hr.item():.5f}; lr: {warmup_lr:.7f}"
             )
 
-            if i % 1 == 0:
+            if i % 100 == 0:
                 with torch.no_grad():
                     utils.save_image(image_lr,
                                      f"sample/{args.save_folder}/gt_lr_{str(i + 1).zfill(6)}.png",
