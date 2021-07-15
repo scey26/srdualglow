@@ -974,8 +974,6 @@ class Cond_Glow(nn.Module):
             inp = block_reverse
         return inp
 
-
-
     def prep_conds(self, left_glow_out, direction):
         act_cond = left_glow_out['all_act_outs']
         w_cond = left_glow_out['all_w_outs']  # left_glow_out in the forward direction
@@ -995,3 +993,120 @@ class Cond_Glow(nn.Module):
             conditions['coupling_cond'] = [list(reversed(cond)) for cond in list(reversed(conditions['coupling_cond']))]
         return conditions
 
+
+class Cond_Glow_Skip(nn.Module):
+    def __init__(
+        self, in_channel, n_flow, n_block, input_shapes, cond_shapes, affine=True, conv_lu=True
+    ):
+        super().__init__()
+        self.n_blocks = n_block
+        self.blocks = nn.ModuleList()
+        n_channel = in_channel
+        for i in range(n_block - 1):
+            inp_shape = input_shapes[i]
+            cond_shape = cond_shapes[i]
+
+            self.blocks.append(Cond_Block(n_channel, n_flow, inp_shape, cond_shape, affine=affine, conv_lu=conv_lu))
+            n_channel *= 2
+        self.blocks.append(Cond_Block(n_channel, n_flow, input_shapes[n_block - 1], cond_shapes[n_block - 1], split=False, affine=affine))
+
+    def forward(self, inp, left_glow_out, image_lr_resize):
+        conditions = self.prep_conds(left_glow_out, direction='forward')
+        log_p_sum = 0
+        log_det = 0
+        out = inp
+        z_outs = []
+
+        all_flows_outs = []  # a 2d list, each element of which corresponds to the flows_outs of each Block
+        all_w_outs = []  # 2d list
+        all_act_outs = []  # 2d list
+
+        for i, block in enumerate(self.blocks):
+            act_cond, w_cond, coupling_cond = extract_conds(conditions, i)
+            conds = make_cond_dict(act_cond, w_cond, coupling_cond)
+
+            # subtract image_lr_resize squeezes
+            out = out - image_lr_resize
+            block_out = block(out, conds)
+
+            # image_lr_resize squeeze for next image_lr_resize
+            b_size, n_channel, height, width = image_lr_resize.size()
+            squeezed = image_lr_resize.view(b_size, n_channel, height // 2, 2, width // 2, 2)
+            squeezed = squeezed.permute(0, 1, 3, 5, 2, 4)
+            image_lr_resize = squeezed.contiguous().view(b_size, n_channel * 4, height // 2, width // 2)
+            image_lr_resize, _ = image_lr_resize.chunk(2, 1)
+
+            out, det, log_p = block_out['out'], block_out['total_log_det'], block_out['log_p']
+            z_new = block_out['z_new']
+
+            # appending flows_outs - done by the left_glow
+            flows_out = block_out['flows_outs']
+            all_flows_outs.append(flows_out)
+
+            # appending w_outs - done by the left_glow
+            w_outs = block_out['w_outs']
+            all_w_outs.append(w_outs)
+
+            # appending act_outs - done by the left_glow
+            act_outs = block_out['act_outs']
+            all_act_outs.append(act_outs)
+
+            z_outs.append(z_new)
+            log_det = log_det + det
+            log_p_sum = log_p_sum + log_p
+
+        return {
+            'all_act_outs': all_act_outs,
+            'all_w_outs': all_w_outs,
+            'all_flows_outs': all_flows_outs,
+            'z_outs': z_outs,
+            'log_p_sum': log_p_sum,
+            'log_det': log_det
+        }
+
+    def reverse(self, z_list, reconstruct=False, left_glow_out=None, image_lr_resize=None):
+        conditions = self.prep_conds(left_glow_out, direction='reverse')
+        inp = None
+        rec_list = [reconstruct] * self.n_blocks  # make a list of True or False
+
+        # generate image_lr_resize squeezes
+        image_lr_resize_list = [image_lr_resize]
+        for i in range(self.n_blocks-1):
+            b_size, n_channel, height, width = image_lr_resize.size()
+            squeezed = image_lr_resize.view(b_size, n_channel, height // 2, 2, width // 2, 2)
+            squeezed = squeezed.permute(0, 1, 3, 5, 2, 4)
+            image_lr_resize = squeezed.contiguous().view(b_size, n_channel * 4, height // 2, width // 2)
+            image_lr_resize, _ = image_lr_resize.chunk(2, 1)
+            image_lr_resize_list.append(image_lr_resize)
+
+        # Block reverse operations one by one
+        for i, block in enumerate(self.blocks[::-1]):  # it starts from the last Block
+            act_cond, w_cond, coupling_cond = extract_conds(conditions, i)
+            conds = make_cond_dict(act_cond, w_cond, coupling_cond)
+
+            reverse_input = z_list[-1] if i == 0 else inp
+            block_reverse = block.reverse(output=reverse_input,  # Block reverse operation
+                                          eps=z_list[-(i + 1)],
+                                          reconstruct=rec_list[-(i + 1)],
+                                          conditions=conds)
+            inp = block_reverse + image_lr_resize_list[-1-i]
+        return inp
+
+    def prep_conds(self, left_glow_out, direction):
+        act_cond = left_glow_out['all_act_outs']
+        w_cond = left_glow_out['all_w_outs']  # left_glow_out in the forward direction
+        coupling_cond = left_glow_out['all_flows_outs']
+        coupling_cond_new = []
+        for c in coupling_cond:
+            coupling_cond_new.append(c[1:])
+        coupling_cond = coupling_cond_new
+
+        # make conds a dictionary
+        conditions = make_cond_dict(act_cond, w_cond, coupling_cond)
+
+        # reverse lists for reverse operation
+        if direction == 'reverse':
+            conditions['act_cond'] = [list(reversed(cond)) for cond in list(reversed(conditions['act_cond']))]  # reverse 2d list
+            conditions['w_cond'] = [list(reversed(cond)) for cond in list(reversed(conditions['w_cond']))]
+            conditions['coupling_cond'] = [list(reversed(cond)) for cond in list(reversed(conditions['coupling_cond']))]
+        return conditions
