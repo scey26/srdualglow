@@ -192,19 +192,19 @@ def train(args, model_left, model_right, optimizer):
                     utils.save_image(image_lr,
                         f"sample/{args.save_folder}/gt_lr_{str(i + 1).zfill(6)}.png",
                         normalize=True,
-                        value_range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),
                     )
 
                     utils.save_image(image_hr,
                         f"sample/{args.save_folder}/gt_hr_{str(i + 1).zfill(6)}.png",
                         normalize=True,
-                        value_range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),
                     )
 
                     utils.save_image(image_mr,
                         f"sample/{args.save_folder}/gt_mr_{str(i + 1).zfill(6)}.png",
                         normalize=True,
-                        value_range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),
                     )
 
                     utils.save_image(
@@ -212,7 +212,7 @@ def train(args, model_left, model_right, optimizer):
                         f"sample/{args.save_folder}/gen_lr_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         nrow=10,
-                        value_range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),
                     )
 
                     utils.save_image(
@@ -220,7 +220,7 @@ def train(args, model_left, model_right, optimizer):
                         f"sample/{args.save_folder}/gen_mr_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         nrow=10,
-                        value_range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),
                     )
 
                     utils.save_image(
@@ -228,7 +228,7 @@ def train(args, model_left, model_right, optimizer):
                         f"sample/{args.save_folder}/gen_hr_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         nrow=10,
-                        value_range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),
                     )
 
                     utils.save_image(
@@ -236,10 +236,19 @@ def train(args, model_left, model_right, optimizer):
                         f"sample/{args.save_folder}/gen_hr_randz_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         nrow=10,
-                        value_range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),
                     )
 
                     gen_mr_randz = model_single_mid.reverse(z_sample_mr, reconstruct=False, left_glow_out=left_glow_out)
+
+                    utils.save_image(
+                        gen_mr_randz.cpu().data,
+                        f"sample/{args.save_folder}/gen_mr_randz_{str(i + 1).zfill(6)}.png",
+                        normalize=True,
+                        nrow=10,
+                        range=(-0.5, 0.5),
+                    )
+
                     mid_glow_out_randz = model_mid(gen_mr_randz + torch.rand_like(gen_mr_randz) / n_bins, left_glow_out)
 
                     utils.save_image(
@@ -247,7 +256,7 @@ def train(args, model_left, model_right, optimizer):
                         f"sample/{args.save_folder}/gen_hr_randz_randz_{str(i + 1).zfill(6)}.png",
                         normalize=True,
                         nrow=10,
-                        value_range=(-0.5, 0.5),
+                        range=(-0.5, 0.5),
                     )
 
             if i % 10000 == 0:
