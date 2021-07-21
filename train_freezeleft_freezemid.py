@@ -98,6 +98,13 @@ def train(args, model_left, model_right, optimizer):
     dataset_hr = iter(sample_data(args.path, args.batch, args.img_size))
     n_bins = 2.0 ** args.n_bits
 
+    z_sample_mr = []
+    z_shapes_mr = calc_z_shapes(3, args.img_size // 2, args.n_flow, args.n_block)
+    for z in z_shapes_mr:
+        z_new = torch.randn(args.batch, *z) * args.temp
+        z_sample_mr.append(z_new.to(device))
+
+
     z_sample_hr = []
     z_shapes_hr = calc_z_shapes(3, args.img_size, args.n_flow, args.n_block)
     for z in z_shapes_hr:
@@ -232,7 +239,7 @@ def train(args, model_left, model_right, optimizer):
                         value_range=(-0.5, 0.5),
                     )
 
-                    gen_mr_randz = model_single_mid.reverse(z_sample_hr, reconstruct=False, left_glow_out=left_glow_out)
+                    gen_mr_randz = model_single_mid.reverse(z_sample_mr, reconstruct=False, left_glow_out=left_glow_out)
                     mid_glow_out_randz = model_mid(gen_mr_randz + torch.rand_like(gen_mr_randz) / n_bins, left_glow_out)
 
                     utils.save_image(
