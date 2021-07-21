@@ -54,6 +54,35 @@ ex) python train_freezeleft.py './dataset' --save_folder 210710_test2 --left_glo
 
 # Recording areas
 
+### [0721, Seungjae] Hierarchical x4 SR
+Direct x4 SR with `train_freezeleft.py` resulted some artifact.
+Our hypothesis of these artifact is that they are from x4 interpolation of conditioning parameters.
+Thus, we tried hierarchical x4 SR where images goes 32 --> 64 --> 128.
+We first trained 32 --> 64 with `train_freezeleft.py`.
+This pretrained right `Cond_Glow` will be `mid_Glow` in `train_freezeleft_freezemid.py`.
+In `train_freezeleft_freezemid.py`, there are three Glows; Glow (with 32 size), Cond_Glow (with 64 size), and Cond_Glow (with 128 size).
+We will load pretrained weights for left_Glow and mid_Glow.
+
+`gen_hr_randz_randz_{str(i + 1).zfill(6)}.png` image is generated with following steps.
+1. Extract conditioning parameters from left_Glow with 32 size image.
+2. Generate `mr_randz` image. Random z is passed to reverse flow of mid_Glow conditioning with **1**.
+3. Extract conditioning parameters from mid_Glow with `mr_randz` image (64 size).
+4. Generate `hr_randz_randz` image. Random z is passed to reverse flow of right_Glow conditioning with **3**.
+
+`mr` images are used in **training** right_Glow, but they are not used in generating `gen_hr_randz_randz_iter.png`.
+
+
+`CUDA_VISIBLE_DEVICES=2,3 python train_freezeleft_freezemid.py ./celeba_train --save_folder 0720_x4_32_64_128_freezeleft_n_f_32_n_b_4 --scale 4 --img_size 128 --left_glow_params ./checkpoint/0713_x4_onlyleft_n_f_32_n_b_4_onceagain/model_lr_040001.pt --mid_glow_params ./checkpoint/0720_x2_32_64_freezeleft_n_f_32_n_b_4/model_hr_020001.pt`
+
+### [0720, Seungjae] Revert to ImageFolder from CelebA dataset
+No exact reason figured out, using CelebA dataset slows down the iteration which was adopted for train/valid/test split.
+Reverted to ImageFolder and separated train/valid/test partition physically.
+```bash
+scp -r seungjae@143.248.230.92:/media/seungjae/4f8e1659-05ca-478b-993b-9eed84c6feaa/srdualglow/celeba_train ./
+scp -r seungjae@143.248.230.92:/media/seungjae/4f8e1659-05ca-478b-993b-9eed84c6feaa/srdualglow/celeba_valid ./
+scp -r seungjae@143.248.230.92:/media/seungjae/4f8e1659-05ca-478b-993b-9eed84c6feaa/srdualglow/celeba_test ./
+```
+
 ### [0713, Seungjae] For x4 SR.
 Retrained Left Glow for x4 scale (32 --> 128).
 `scp seungjae@143.248.230.92:/media/seungjae/4f8e1659-05ca-478b-993b-9eed84c6feaa/srdualglow/checkpoint/0713_x4_onlyleft_n_f_32_n_b_4_onceagain/model_lr_040001.pt ./`
