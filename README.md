@@ -1,5 +1,11 @@
 # Update log
 
+### <07/26/2021(by Changyeop)>
+
+DONE
+
+1) Selecting the resizing method of conditional features (model.py, train_freezeleft_skip.py)
+
 ### <07/13/2021(by Changyeop)>
 
 DISCUSSION
