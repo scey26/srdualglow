@@ -89,7 +89,7 @@ class FlowStep(nn.Module):
         if self.flow_coupling == "bentIdentityPreAct":
             z, logdet = self.bentIdentPar(z, logdet, reverse=False)
 
-        # 1. actnorm
+        # 1. actnormaffine
         if self.norm_type == "ConditionalActNormImageInjector":
             img_ft = getConditional(rrdbResults, self.position)
             z, logdet = self.actnorm(z, img_ft=img_ft, logdet=logdet, reverse=False)
