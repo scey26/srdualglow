@@ -6,8 +6,50 @@ import numpy as np
 from scipy import linalg as la
 from utils import *
 from cond_net import *
+import math
 
 logabs = lambda x: torch.log(torch.abs(x))
+
+RESIZE_CHOICE = 1
+RESIZE_SCALE = 4
+
+def set_resize(args):
+    global RESIZE_CHOICE
+    global RESIZE_SCALE
+    RESIZE_CHOICE = args.resize_choice
+    RESIZE_SCALE = args.resize_scale
+
+class resize(nn.Module):
+    def __init__(self, cond_shape):
+        super().__init__()
+        global RESIZE_CHOICE
+        global RESIZE_SCALE
+
+        if RESIZE_CHOICE == 1:
+            num_upsample = int(math.log2(RESIZE_SCALE))
+            upsample_layers = []
+            filters = cond_shape[0]
+            for _ in range(num_upsample):
+                upsample_layers += [
+                    nn.Conv2d(filters, filters * 4, kernel_size=3, stride=1, padding=1),
+                    nn.LeakyReLU(),
+                    nn.PixelShuffle(upscale_factor=2),
+                ]
+            upsample_layers += [nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1),
+                nn.LeakyReLU(),
+                nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1),
+                ]
+            upsampling = nn.Sequential(*upsample_layers)
+            self.upsampling = upsampling.cuda()
+
+
+    def forward(self, inp):
+        if RESIZE_CHOICE == 0:
+            return torch.nn.functional.interpolate(inp, scale_factor=RESIZE_SCALE, mode='bilinear')
+        elif RESIZE_CHOICE == 1:
+            return self.upsampling(inp)
+
+
 
 
 class ActNorm(nn.Module):
@@ -71,8 +113,11 @@ class Cond_Actnorm(nn.Module):
             total_params = sum(p.numel() for p in self.cond_net.parameters())
             print('ActNormConditional CondNet params:', total_params)
 
+        self.resize = resize(cond_shape)
+
     def forward(self, inp, condition):
-        condition = torch.nn.functional.interpolate(condition, inp.size()[2:], mode='bilinear')
+        # condition = torch.nn.functional.interpolate(condition, inp.size()[2:], mode='bilinear')
+        condition = self.resize(condition)
         cond_out = self.cond_net(condition, inp)  # output shape (B, 2, C)
         s = cond_out[:, 0, :].unsqueeze(2).unsqueeze(3)  # s, t shape (B, C, 1, 1)
         t = cond_out[:, 1, :].unsqueeze(2).unsqueeze(3)
@@ -84,7 +129,8 @@ class Cond_Actnorm(nn.Module):
         return s * (inp + t), log_det
 
     def reverse(self, out, condition):
-        condition = torch.nn.functional.interpolate(condition, out.size()[2:], mode='bilinear')
+        # condition = torch.nn.functional.interpolate(condition, out.size()[2:], mode='bilinear')
+        condition = self.resize(condition)
         cond_out = self.cond_net(condition)  # output shape (B, 2, C)
         s = cond_out[:, 0, :].unsqueeze(2).unsqueeze(3)  # s, t shape (B, C, 1, 1)
         t = cond_out[:, 1, :].unsqueeze(2).unsqueeze(3)
@@ -204,8 +250,11 @@ class Cond_InvConv2dLU(nn.Module):
             self.w_u = nn.Parameter(w_u)
             self.w_s = nn.Parameter(logabs(w_s))
 
+        self.resize = resize(cond_shape)
+
     def forward(self, inp, condition=None):
-        condition = torch.nn.functional.interpolate(condition, inp.size()[2:], mode='bilinear')
+        # condition = torch.nn.functional.interpolate(condition, inp.size()[2:], mode='bilinear')
+        condition = self.resize(condition)
         _, _, height, width = inp.shape
         weight, s_vector = self.calc_weight(condition)
 
@@ -229,12 +278,14 @@ class Cond_InvConv2dLU(nn.Module):
 
 
     def reverse_single(self, output, condition=None):
-        condition = torch.nn.functional.interpolate(condition, output.size()[2:], mode='bilinear')
+        # condition = torch.nn.functional.interpolate(condition, output.size()[2:], mode='bilinear')
+        condition = self.resize(condition)
         weight, _ = self.calc_weight(condition)
         return F.conv2d(output, weight.squeeze().inverse().unsqueeze(2).unsqueeze(3))
 
     def reverse(self, output, condition=None):
-        condition = torch.nn.functional.interpolate(condition, output.size()[2:], mode='bilinear')
+        # condition = torch.nn.functional.interpolate(condition, output.size()[2:], mode='bilinear')
+        condition = self.resize(condition)
         batch_size = output.shape[0]
         if batch_size == 1:
             return self.reverse_single(output, condition)
@@ -355,6 +406,8 @@ class Cond_AffineCoupling_debugging(nn.Module):
 
         self.cond_net = CouplingCondNet(cond_shape, inp_shape)  # without considering batch size dimension
 
+        self.resize = resize(cond_shape)
+
 
     def compute_feature_cond(self, cond):
         cond_tensor = self.cond_net(cond)
@@ -378,7 +431,8 @@ class Cond_AffineCoupling_debugging(nn.Module):
         return s, t
 
     def forward(self, input, cond):
-        cond = torch.nn.functional.interpolate(cond, input.size()[2:], mode='bilinear')
+        # cond = torch.nn.functional.interpolate(cond, input.size()[2:], mode='bilinear')
+        cond = self.resize(cond)
         
         # 
 
@@ -404,7 +458,8 @@ class Cond_AffineCoupling_debugging(nn.Module):
         return torch.cat([out_b1, out_b2], 1), logdet
 
     def reverse(self, output, cond):
-        cond = torch.nn.functional.interpolate(cond, output.size()[2:], mode='bilinear')
+        # cond = torch.nn.functional.interpolate(cond, output.size()[2:], mode='bilinear')
+        cond = self.resize(cond)
         # out_a, out_b = output.chunk(2, 1)
 
         if self.affine:
@@ -444,6 +499,7 @@ class Cond_AffineCoupling_original(nn.Module):
         self.net[2].bias.data.zero_()
 
         self.cond_net = CouplingCondNet(cond_shape, inp_shape)  # without considering batch size dimension
+        self.resize = resize(cond_shape)
 
     def compute_coupling_params(self, tensor, cond):
         if cond is not None:  # conditional
@@ -456,7 +512,8 @@ class Cond_AffineCoupling_original(nn.Module):
         return s, t
 
     def forward(self, input, cond):
-        cond = torch.nn.functional.interpolate(cond, input.size()[2:], mode='bilinear')
+        # cond = torch.nn.functional.interpolate(cond, input.size()[2:], mode='bilinear')
+        cond = self.resize(cond)
         
         in_a, in_b = input.chunk(2, 1)
 
@@ -473,7 +530,8 @@ class Cond_AffineCoupling_original(nn.Module):
         return torch.cat([in_a, out_b], 1), logdet
 
     def reverse(self, output, cond):
-        cond = torch.nn.functional.interpolate(cond, output.size()[2:], mode='bilinear')
+        # cond = torch.nn.functional.interpolate(cond, output.size()[2:], mode='bilinear')
+        cond = self.resize(cond)
         out_a, out_b = output.chunk(2, 1)
 
         if self.affine:
