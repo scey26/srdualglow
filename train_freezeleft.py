@@ -37,7 +37,7 @@ parser.add_argument("--save_folder", type=str)
 def sample_data(path, batch_size, image_size):
     transform = transforms.Compose(
         [
-            transforms.Resize(image_size),
+            transforms.Resize(image_mple_datasize),
             transforms.CenterCrop(image_size),
             # transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
