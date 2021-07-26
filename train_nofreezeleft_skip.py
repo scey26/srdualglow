@@ -135,6 +135,10 @@ def train(args, model_left, model_right, optimizer):
                         image_lr + torch.rand_like(image_lr) / n_bins
                     )
 
+                    # extract left outputs
+                    log_p_lr, logdet_lr = left_glow_out['log_p_sum'], left_glow_out['log_det']
+
+                    # perform right glow forward
                     right_glow_out = model_right.module(image_hr + torch.rand_like(image_hr) / n_bins, left_glow_out, image_lr_resize)
 
                     continue
@@ -148,17 +152,22 @@ def train(args, model_left, model_right, optimizer):
                 # perform right glow forward
                 right_glow_out = model_right(image_hr + torch.rand_like(image_hr) / n_bins, left_glow_out, image_lr_resize)
 
+                # extract left outputs
+                log_p_lr, logdet_lr = left_glow_out['log_p_sum'], left_glow_out['log_det']
+
                 # extract right outputs
                 log_p_hr, logdet_hr = right_glow_out['log_p_sum'], right_glow_out['log_det']
 
             warmup_lr = args.lr
 
+            logdet_lr = logdet_lr.mean()
             logdet_hr = logdet_hr.mean()
 
+            loss_lr, log_p_lr, log_det_lr = calc_loss(log_p_lr, logdet_lr, args.img_size // args.scale, n_bins)
             loss_hr, log_p_hr, log_det_hr = calc_loss(log_p_hr, logdet_hr, args.img_size, n_bins)
 
             optimizer.zero_grad()
-            loss = loss_hr
+            loss = loss_hr + args.lamb * loss_lr
             loss.backward()
             optimizer.step()
 
@@ -241,5 +250,6 @@ if __name__ == "__main__":
     model_right = nn.DataParallel(model_single_right)
     model_right = model_right.to(device)
 
-    optimizer = optim.Adam([{"params": model_right.parameters(), "lr": args.lr}])
+    optimizer = optim.Adam([{"params": model_right.parameters(), "lr": args.lr},
+                            {"params": model_left.parameters(), "lr": args.lr}])
     train(args, model_left, model_right, optimizer)
