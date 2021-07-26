@@ -11,7 +11,7 @@ from torch.autograd import Variable, grad
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
 
-from model import Glow, Cond_Glow_Skip
+from model import Glow, Cond_Glow_Skip, set_resize
 from utils import *
 import os
 
@@ -27,14 +27,13 @@ parser.add_argument("--affine", action="store_false", help="use affine coupling 
 parser.add_argument("--n_bits", default=5, type=int, help="number of bits")
 parser.add_argument("--lr", default=1e-4, type=float, help="learning rate")
 parser.add_argument("--img_size", default=128, type=int, help="image size")
-parser.add_argument("--scale", default=4, type=int, help="SR scale")
+parser.add_argument("--scale", default=2, type=int, help="SR scale")
 parser.add_argument("--temp", default=0.7, type=float, help="temperature of sampling")
 parser.add_argument("--n_sample", default=4, type=int, help="number of samples")  # it should be same with batch size
 parser.add_argument("path", metavar="PATH", type=str, help="Path to image directory")
 parser.add_argument("--left_glow_params", type=str)
 parser.add_argument("--save_folder", type=str)
-parser.add_argument("--lamb", default=1e-4, type=float, help="lambda lr for left Glow")
-
+parser.add_argument("--resize_choice", default=1, type=int)
 
 def sample_data(path, batch_size, image_size):
     transform = transforms.Compose(
@@ -135,6 +134,7 @@ def train(args, model_left, model_right, optimizer):
                         image_lr + torch.rand_like(image_lr) / n_bins
                     )
 
+                    # perform right glow forward
                     right_glow_out = model_right.module(image_hr + torch.rand_like(image_hr) / n_bins, left_glow_out, image_lr_resize)
 
                     continue
@@ -220,6 +220,7 @@ def train(args, model_left, model_right, optimizer):
 if __name__ == "__main__":
     args = parser.parse_args()
     print(args)
+    set_resize(args)
     os.makedirs(f"checkpoint/{args.save_folder}", exist_ok=True)
     os.makedirs(f"sample/{args.save_folder}", exist_ok=True)
 
@@ -242,4 +243,5 @@ if __name__ == "__main__":
     model_right = model_right.to(device)
 
     optimizer = optim.Adam([{"params": model_right.parameters(), "lr": args.lr}])
+    # torch.autograd.set_detect_anomaly(True)
     train(args, model_left, model_right, optimizer)
