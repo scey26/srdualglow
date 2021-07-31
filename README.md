@@ -89,6 +89,13 @@ scp -r seungjae@143.248.230.92:/media/seungjae/4f8e1659-05ca-478b-993b-9eed84c6f
 scp -r seungjae@143.248.230.92:/media/seungjae/4f8e1659-05ca-478b-993b-9eed84c6feaa/srdualglow/celeba_test ./
 ```
 
+### [0731, Seungjae] Trained SRFlow, Evaluation SRFlow.
+Generated small test set from official test set of CelebA. Small test set is composed with first 350 images. You can get the dataset by following script.
+`scp -r seungjae@143.248.230.92:/mnt/HDD3_coursework/srdualglow/celeba_small_test/_* ./`, password : `seungjae`.
+
+Evaluation code is modified from official SRFlow test code. This code calculates PSNR, SSIM, LPIPS for each sample and save them as csv.
+Evaluation code : `python SRFlow_seungjae/code/test_seungjae_SRFlow.py`
+
 ### [0713, Seungjae] For x4 SR.
 Retrained Left Glow for x4 scale (32 --> 128).
 `scp seungjae@143.248.230.92:/media/seungjae/4f8e1659-05ca-478b-993b-9eed84c6feaa/srdualglow/checkpoint/0713_x4_onlyleft_n_f_32_n_b_4_onceagain/model_lr_040001.pt ./`
