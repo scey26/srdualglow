@@ -273,7 +273,7 @@ class SRFlowModel(BaseModel):
         if load_path_G is not None:
             logger.info('Loading model for G [{:s}] ...'.format(load_path_G))
             print(load_path_G)
-            load_path_G = '/mnt/HDD3_coursework/srdualglow/SRFlow/experiments/train/models/174001_G.pth'
+            load_path_G = '/mnt/HDD3_coursework/srdualglow/SRFlow/experiments/train/models/187001_G.pth'
             self.load_sj(load_path_G)
             # self.load_network(load_path_G, self.netG, self.opt['path'].get('strict_load', True),
             # submodule=load_submodule)
