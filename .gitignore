@@ -10,3 +10,8 @@ celeba*
 
 SRFlow_results/
 *.png
+*.jpg
+*.csv
+*.pyc
+
+SRFlow/
