@@ -8,6 +8,8 @@ baseline_test_210624/
 celeba/
 celeba*
 
+SRFlow_seungjae/code/srdualglow_models
+
 SRFlow_results/
 *.png
 *.jpg
